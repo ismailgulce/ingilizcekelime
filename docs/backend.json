@@ -1,0 +1,188 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user in the LinguaLeap application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the user entity."
+        },
+        "username": {
+          "type": "string",
+          "description": "The user's username."
+        },
+        "email": {
+          "type": "string",
+          "description": "The user's email address.",
+          "format": "email"
+        },
+        "dailyGoal": {
+          "type": "number",
+          "description": "The user's daily word learning goal."
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "email"
+      ]
+    },
+    "Word": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Word",
+      "type": "object",
+      "description": "Represents a word in the English language.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the word entity."
+        },
+        "english": {
+          "type": "string",
+          "description": "The word in English."
+        },
+        "turkish": {
+          "type": "string",
+          "description": "The Turkish translation of the word."
+        },
+        "wordType": {
+          "type": "string",
+          "description": "The type of word (noun, verb, adjective, etc.)."
+        },
+        "synonyms": {
+          "type": "array",
+          "description": "An array of synonyms for the word.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exampleSentences": {
+          "type": "array",
+          "description": "An array of example sentences using the word.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "english",
+        "turkish",
+        "wordType"
+      ]
+    },
+    "UserWord": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "UserWord",
+      "type": "object",
+      "description": "Represents a word that a user is learning.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the UserWord entity."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N UserWord)"
+        },
+        "wordId": {
+          "type": "string",
+          "description": "Reference to Word. (Relationship: Word 1:N UserWord)"
+        },
+        "lastReviewed": {
+          "type": "string",
+          "description": "The date and time the word was last reviewed by the user.",
+          "format": "date-time"
+        },
+        "nextReview": {
+          "type": "string",
+          "description": "The date and time the word should be reviewed again by the user.",
+          "format": "date-time"
+        },
+        "repetitionNumber": {
+          "type": "number",
+          "description": "The number of times the word has been reviewed."
+        },
+        "interval": {
+          "type": "number",
+          "description": "The interval (in days) until the next review."
+        },
+        "easeFactor": {
+          "type": "number",
+          "description": "The ease factor for the spaced repetition algorithm."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "wordId"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. Uses path-based ownership; only the user can access their own profile.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/words/{wordId}",
+        "definition": {
+          "entityName": "Word",
+          "schema": {
+            "$ref": "#/backend/entities/Word"
+          },
+          "description": "Stores word data. This collection is globally accessible; security rules will need to limit write access.",
+          "params": [
+            {
+              "name": "wordId",
+              "description": "The unique identifier of the word."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/userWords/{userWordId}",
+        "definition": {
+          "entityName": "UserWord",
+          "schema": {
+            "$ref": "#/backend/entities/UserWord"
+          },
+          "description": "Stores the words a user is learning. Uses path-based ownership; only the user can access their own UserWord documents.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            },
+            {
+              "name": "userWordId",
+              "description": "The unique identifier of the userWord."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to ensure authorization independence, clarity, and scalability for the LinguaLeap application. It leverages path-based ownership for user-specific data and denormalization to avoid complex security rules that rely on `get()` calls.  Authorization independence is achieved by storing all necessary authorization data directly within the documents, eliminating the need to traverse the data hierarchy to determine access. Segregation of data with different access requirements (e.g., user-specific vs. global data) further simplifies security rules and enhances performance. QAPs (Rules are not Filters) is supported by this structure.  Specifically, list operations will be secure because path-based ownership ensures that users can only access the UserWords that belong to them. Denormalization is not applicable to the current feature set. The structure strictly separates user data, ensuring that users can only access their own data. The `words` collection contains public data."
+  }
+}

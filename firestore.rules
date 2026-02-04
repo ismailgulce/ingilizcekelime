@@ -1,0 +1,134 @@
+/**
+ * Core Philosophy: This ruleset enforces a strict user-ownership model where users have complete control over their own data, but no access to other users' data. It establishes a clear separation between private, user-specific information and globally public data.
+ *
+ * Data Structure: All user-specific data, including their profile (`/users/{userId}`) and their learning words (`/users/{userId}/userWords`), is nested under a path containing their unique user ID. A top-level `/words` collection holds public, read-only dictionary data accessible to all users.
+ *
+ * Key Security Decisions:
+ * - User Isolation: A user can only read and write to documents within their own `/users/{userId}` data tree.
+ * - No User Listing: The top-level `/users` collection cannot be listed to prevent enumeration of all application users.
+ * - Public Read-Only Data: The `/words` collection is public for anyone to read but is locked down against all client-side write operations. This data is expected to be managed by a trusted backend process.
+ * - Self-Creation: Users are allowed to create their own profile document, establishing their presence in the database upon sign-up.
+ *
+ * Denormalization for Authorization: The `UserWord` documents contain a `userId` field. This is validated on creation and enforced as immutable on update to ensure that a user's word data always remains correctly associated with their user path, simplifying security rules and preventing data from being "orphaned" or moved between users.
+ *
+ * Structural Segregation: The ruleset leverages separate collections for data with different access patterns. Private user data (`userWords`) is in a user subcollection, while public data (`words`) is in a separate top-level collection. This is a secure and performant way to manage list operations.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------------------------------------------------
+    // Helper Functions
+    // ----------------------------------------------------------------------
+
+    /**
+     * Checks if a user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the requesting user's UID matches the provided userId.
+     * This is the foundation of the user-ownership model.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Verifies that a document exists before an update or delete operation.
+     * Prevents operations on non-existent documents.
+     */
+    function isExistingDoc() {
+      return resource != null;
+    }
+
+    /**
+     * Combines ownership and existence checks for state-changing operations.
+     */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && isExistingDoc();
+    }
+
+    /**
+     * Validates that the incoming 'id' field in a new User document
+     * matches the document's ID in the path, ensuring relational integrity.
+     */
+    function userProfileIdIsConsistent(userId) {
+      return request.resource.data.id == userId;
+    }
+
+    /**
+     * Ensures the 'id' field of a User document cannot be changed after creation.
+     */
+    function userProfileIdIsImmutable() {
+      return request.resource.data.id == resource.data.id;
+    }
+
+    /**
+     * Validates that the incoming 'userId' field in a new document (e.g., UserWord)
+     * matches the parent userId from the path.
+     */
+    function incomingDataHasValidUserId(userId) {
+      return request.resource.data.userId == userId;
+    }
+
+    /**
+     * Ensures the 'userId' field of a subcollection document cannot be changed,
+     * preventing it from being reassigned to another user.
+     */
+    function userIdIsImmutable() {
+      return request.resource.data.userId == resource.data.userId;
+    }
+
+    // ----------------------------------------------------------------------
+    // Collection Rules
+    // ----------------------------------------------------------------------
+
+    /**
+     * @description Manages user profile documents.
+     * @path /users/{userId}
+     * @allow (create) An authenticated user creating their own profile document.
+     * @deny (get) An authenticated user trying to read another user's profile.
+     * @principle Restricts access to a user's own data tree and prevents user enumeration.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && userProfileIdIsConsistent(userId);
+      allow update: if isExistingOwner(userId) && userProfileIdIsImmutable();
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Stores global word dictionary data. This data is considered public and immutable from the client.
+     * @path /words/{wordId}
+     * @allow (get) Any user, signed in or not, retrieving a word definition.
+     * @deny (create) Any client trying to add a new word to the global dictionary.
+     * @principle Provides public read access while protecting the integrity of shared data by disallowing all client writes.
+     */
+    match /words/{wordId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    /**
+     * @description Manages the relationship between a user and a word they are learning, including spaced repetition stats.
+     * @path /users/{userId}/userWords/{userWordId}
+     * @allow (create) An authenticated user adding a new word to their personal learning list.
+     * @deny (list) An authenticated user trying to list the words of another user.
+     * @principle Enforces strict document ownership within a user's private subcollection.
+     */
+    match /users/{userId}/userWords/{userWordId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && incomingDataHasValidUserId(userId);
+      allow update: if isExistingOwner(userId) && userIdIsImmutable();
+      allow delete: if isExistingOwner(userId);
+    }
+  }
+}
